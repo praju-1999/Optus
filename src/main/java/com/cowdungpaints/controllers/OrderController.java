@@ -1,51 +1,78 @@
 package com.cowdungpaints.controllers;
 
-import com.cowdungpaints.entities.Address;
-import com.cowdungpaints.entities.Customer;
-import com.cowdungpaints.entities.Order;
-import com.cowdungpaints.entities.OrderDetails;
-import com.cowdungpaints.repositories.AddressRepository;
-import com.cowdungpaints.repositories.CustomerRepository;
-import com.cowdungpaints.repositories.OrderDetailsRepository;
-import com.cowdungpaints.repositories.OrderRepository;
+import com.cowdungpaints.dto.OrderPaymentRequestDTO;
+import com.cowdungpaints.entities.*;
+import com.cowdungpaints.repositories.*;
+import com.cowdungpaints.services.PaymentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 import org.springframework.web.multipart.MultipartFile;
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
 
 @RestController
 @RequestMapping("/order")
 public class OrderController {
 
-	private Logger logger = LoggerFactory.getLogger(OrderController.class);
+	private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
 
 	@Autowired
-	OrderRepository orderRepository;
+	private OrderRepository orderRepository;
 
 	@Autowired
-	AddressRepository addressRepository;
+	private AddressRepository addressRepository;
 
 	@Autowired
-	CustomerRepository customerRepository;
+	private CustomerRepository customerRepository;
 
 	@Autowired
-	OrderDetailsRepository orderDetailsRepository;
+	private OrderDetailsRepository orderDetailsRepository;
+
+	@Autowired
+	private PaymentService paymentService;
 
 	@PostMapping("/new")
-	public Order saveOrder(@RequestBody Order order) {
-		logger.info("saveOrder method invoked with request data::{}", order);
-		return orderRepository.save(order);
+	public ResponseEntity<?> saveOrder(@RequestBody OrderPaymentRequestDTO requestDTO) {
+		try {
+			if (requestDTO == null || requestDTO.getOrder() == null || requestDTO.getPaymentRequest() == null) {
+				return new ResponseEntity<>("Payment is Successfully", HttpStatus.BAD_REQUEST);
+			}
+
+			Order order = requestDTO.getOrder();
+			PaymentRequest paymentRequest = requestDTO.getPaymentRequest();
+
+			Order savedOrder = orderRepository.save(order);
+
+			Payment payment = paymentService.processPayment(savedOrder, paymentRequest);
+
+			if (payment != null && payment.isSuccessful()) {
+				return new ResponseEntity<>(savedOrder, HttpStatus.CREATED);
+			} else {
+				return new ResponseEntity<>("Payment failed for the order", HttpStatus.BAD_REQUEST);
+			}
+		} catch (Exception e) {
+			logger.error("An error occurred while processing the order: {}", e.getMessage(), e);
+			return new ResponseEntity<>("Internal server error occurred", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
 	}
+
 
 	@GetMapping("/{id}")
 	public ResponseEntity<Order> getOrder(@PathVariable("id") Long id) {
-		Order orders = orderRepository.findById(id).get();
-		Address address = orders.getAddress();
-		orders.setAddress(address);
-		return new ResponseEntity<>(orders, HttpStatus.OK);
+		return orderRepository.findById(id)
+				.map(order -> {
+					Address address = order.getAddress();
+					order.setAddress(address);
+					return new ResponseEntity<>(order, HttpStatus.OK);
+				})
+				.orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
 	}
 
 	@PostMapping("/address/add")
@@ -68,7 +95,30 @@ public class OrderController {
 
 	@PostMapping("/upload")
 	public ResponseEntity<String> uploadFile(@RequestParam("file") MultipartFile file) {
-        return new ResponseEntity<>("File uploaded successfully", HttpStatus.OK);
-    }
+		if (file.isEmpty()) {
+			return new ResponseEntity<>("File is empty", HttpStatus.BAD_REQUEST);
+		}
+
+		try {
+			byte[] bytes = file.getBytes();
+			String filePath = "/uploads/" + file.getOriginalFilename();
+			try (OutputStream outputStream = Files.newOutputStream(new File(filePath).toPath())) {
+				outputStream.write(bytes);
+			}
+
+			return new ResponseEntity<>("File uploaded successfully", HttpStatus.OK);
+		} catch (IOException e) {
+			logger.error("Failed to upload file", e);
+			return new ResponseEntity<>("Failed to upload file", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	private class ErrorResponse {
+		public ErrorResponse(String paymentFailed, String paymentIsNull) {
+		}
+	}
 }
+
+
+
 

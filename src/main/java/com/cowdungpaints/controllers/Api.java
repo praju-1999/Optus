@@ -1,18 +1,22 @@
-package com.cowdungpaints.controllers;
-
-import com.cowdungpaints.entities.Address;
-import com.cowdungpaints.entities.Customer;
-import com.cowdungpaints.entities.Order;
-import com.cowdungpaints.entities.OrderDetails;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import com.cowdungpaints.repositories.AddressRepository;
 import com.cowdungpaints.repositories.CustomerRepository;
 import com.cowdungpaints.repositories.OrderDetailsRepository;
 import com.cowdungpaints.repositories.OrderRepository;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.multipart.MultipartFile;
+import com.cowdungpaints.entities.Address;
+import com.cowdungpaints.entities.Customer;
+import com.cowdungpaints.entities.Order;
+import com.cowdungpaints.entities.OrderDetails;
 
 public class Api {
 
@@ -67,23 +71,45 @@ public class Api {
     }
 
     public ResponseEntity<String> uploadFile(MultipartFile file) {
-        return new ResponseEntity<>("File uploaded successfully", HttpStatus.OK);
+        if (file.isEmpty()) {
+            return new ResponseEntity<>("File is empty", HttpStatus.BAD_REQUEST);
+        }
+
+        try {
+            String fileName = StringUtils.cleanPath(file.getOriginalFilename());
+            String directoryPath = "/uploads/";
+            Path path = Paths.get(directoryPath);
+            if (!Files.exists(path)) {
+                Files.createDirectories(path);
+            }
+            String filePath = directoryPath + fileName;
+            try (OutputStream outputStream = new FileOutputStream(new File(filePath))) {
+                outputStream.write(file.getBytes());
+            }
+
+            return new ResponseEntity<>("File uploaded successfully", HttpStatus.OK);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return new ResponseEntity<>("Failed to upload file", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
-    @Test
-    public void testAddOrderDetails() {
-        OrderDetails orderDetails = new OrderDetails();
-        orderDetails.setId(1L);
-        orderDetails.setProduct("Paint");
-        orderDetails.setQuantity(5);
+    public OrderRepository getOrderRepository() {
+        return orderRepository;
+    }
 
-        ResponseEntity<OrderDetails> response = addOrderDetails(orderDetails);
+    public AddressRepository getAddressRepository() {
+        return addressRepository;
+    }
 
-        Assertions.assertEquals(HttpStatus.CREATED, response.getStatusCode());
-        Assertions.assertEquals(orderDetails, response.getBody());
+    public CustomerRepository getCustomerRepository() {
+        return customerRepository;
+    }
+
+    public OrderDetailsRepository getOrderDetailsRepository() {
+        return orderDetailsRepository;
     }
 }
-
 
 
 
